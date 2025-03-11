@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>График свечей</title>
+    <style>
+        canvas {
+            border: 1px solid #000;
+            cursor: crosshair;
+        }
+    </style>
+</head>
+<body>
+    <input type="file" id="fileInput" accept=".json">
+    <canvas id="candlestickChart" width="800" height="400"></canvas>
+
+    <script>
+        let scale = 1;
+        let offsetX = 0;
+        let offsetY = 0;
+        let isDragging = false;
+        let startX, startY;
+        let chartData = [];
+        let cursorY = null;
+
+        const canvas = document.getElementById('candlestickChart');
+        const ctx = canvas.getContext('2d');
+
+        document.getElementById('fileInput').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    try {
+                        const jsonData = JSON.parse(e.target.result);
+                        if (!jsonData.rates || !Array.isArray(jsonData.rates)) throw new Error("Неверный формат данных");
+
+                        chartData = jsonData.rates.map(entry => ({
+                            x: new Date(entry.date.split('-').reverse().join('-')),
+                            o: parseFloat(entry.open),
+                            h: parseFloat(entry.high),
+                            l: parseFloat(entry.low),
+                            c: parseFloat(entry.close),
+                        })).reverse();
+                        drawCandlestickChart();
+                    } catch (error) {
+                        console.error("Ошибка:", error);
+                    }
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        canvas.addEventListener('wheel', function(event) {
+            event.preventDefault();
+            const zoomFactor = 0.1;
+            scale += event.deltaY < 0 ? zoomFactor : -zoomFactor;
+            if (scale < 0.1) scale = 0.1;
+            drawCandlestickChart();
+        });
+
+        canvas.addEventListener('mousedown', function(event) {
+            isDragging = true;
+            startX = event.clientX - offsetX;
+            startY = event.clientY - offsetY;
+            canvas.style.cursor = 'grabbing';
+        });
+
+        canvas.addEventListener('mousemove', function(event) {
+            if (isDragging) {
+                offsetX = event.clientX - startX;
+                offsetY = event.clientY - startY;
+            } else {
+                cursorY = event.clientY - canvas.getBoundingClientRect().top;
+            }
+            drawCandlestickChart();
+        });
+
+        canvas.addEventListener('mouseup', function() {
+            isDragging = false;
+            canvas.style.cursor = 'crosshair';
+        });
+
+        canvas.addEventListener('mouseleave', function() {
+            isDragging = false;
+            cursorY = null;
+            drawCandlestickChart();
+        });
+
+        function drawCandlestickChart() {
+            if (!chartData.length) return;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const padding = 50;
+            const chartWidth = canvas.width - 2 * padding;
+            const chartHeight = canvas.height - 2 * padding;
+
+            const highValues = chartData.map(d => d.h);
+            const lowValues = chartData.map(d => d.l);
+            const minValue = Math.min(...lowValues);
+            const maxValue = Math.max(...highValues);
+
+            const xScale = (chartWidth / chartData.length) * scale;
+            const yScale = (chartHeight / (maxValue - minValue)) * scale;
+
+            chartData.forEach((item, index) => {
+                const x = padding + offsetX + index * xScale;
+                const oY = canvas.height - padding - (item.o - minValue) * yScale + offsetY;
+                const cY = canvas.height - padding - (item.c - minValue) * yScale + offsetY;
+                const hY = canvas.height - padding - (item.h - minValue) * yScale + offsetY;
+                const lY = canvas.height - padding - (item.l - minValue) * yScale + offsetY;
+
+                ctx.beginPath();
+                ctx.moveTo(x, hY);
+                ctx.lineTo(x, lY);
+                ctx.strokeStyle = '#000';
+                ctx.stroke();
+
+                const isBullish = item.c > item.o;
+                ctx.fillStyle = isBullish ? 'green' : 'red';
+                ctx.fillRect(x - xScale / 4, Math.min(oY, cY), xScale / 2, Math.abs(oY - cY));
+
+                if (index % 7 === 0) {
+                    const dateStr = item.x.toLocaleDateString('ru-RU');
+                    ctx.fillStyle = 'black';
+                    ctx.fillText(dateStr, x - xScale / 4, canvas.height - padding + 20);
+                }
+            });
+
+            if (cursorY !== null) {
+                ctx.beginPath();
+                ctx.moveTo(0, cursorY);
+                ctx.lineTo(canvas.width, cursorY);
+                ctx.strokeStyle = 'rgba(0, 0, 255, 0.5)';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                const price = maxValue - ((cursorY - padding - offsetY) / yScale);
+                ctx.fillStyle = 'black';
+                ctx.fillRect(canvas.width - 60, cursorY - 10, 50, 20);
+                ctx.fillStyle = 'white';
+                ctx.font = '12px Arial';
+                ctx.fillText(price.toFixed(2), canvas.width - 55, cursorY + 5);
+            }
+        }
+    </script>
+</body>
+</html>
